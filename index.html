@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#07050a">
+  <meta name="description" content="Ein Herz aus Licht.">
+  <title>Love</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M32 54 8 30C-4 10 22-2 32 18 42-2 68 10 56 30Z' fill='%23ff7897'/%3E%3C/svg%3E">
+  <style>
+    *{box-sizing:border-box}
+    html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#07050a}
+    body{background:radial-gradient(ellipse at 50% 48%,#100810 0%,#07050a 62%)}
+    canvas{display:block;width:100%;height:100%;height:100dvh;touch-action:manipulation}
+    .fallback{position:fixed;inset:0;display:grid;place-items:center;pointer-events:none}
+    .fallback[hidden]{display:none}
+    .fallback svg{width:min(65vw,60vh);height:auto;filter:drop-shadow(0 0 20px #ff3c6f88);animation:beat 2s ease-in-out infinite}
+    @keyframes beat{0%,100%{transform:scale(1)}15%{transform:scale(1.04)}27%{transform:scale(1)}40%{transform:scale(1.025)}}
+    @media(prefers-reduced-motion:reduce){.fallback svg{animation:none}}
+  </style>
+</head>
+<body>
+  <canvas id="heart" aria-label="Leuchtende Partikel formen ein pulsierendes Herz."></canvas>
+  <div class="fallback" id="fallback" hidden role="img" aria-label="Leuchtendes Herz">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 180" aria-hidden="true">
+      <defs><radialGradient id="glow"><stop stop-color="#ffabbc"/><stop offset=".6" stop-color="#ff527d"/><stop offset="1" stop-color="#b9184f"/></radialGradient></defs>
+      <path d="M100 165 19 87C-27 37 46-23 100 36 154-23 227 37 181 87Z" fill="url(#glow)"/>
+    </svg>
+  </div>
+  <script src="heart-engine.js"></script>
+  <script>
+    (() => {
+      const canvas = document.getElementById('heart');
+      const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+      let engine;
+      function fallback() {
+        canvas.style.visibility = 'hidden';
+        document.getElementById('fallback').hidden = false;
+      }
+      try {
+        engine = new HeartEngine(canvas, { onError: fallback });
+        engine.setReducedMotion(reducedMotion.matches);
+        window.heartExperience = engine;
+        reducedMotion.addEventListener('change', event => engine.setReducedMotion(event.matches));
+      } catch (error) {
+        console.error(error);
+        fallback();
+      }
+    })();
+  </script>
+</body>
+</html>
