@@ -119,7 +119,7 @@ def build(slim=True):
     def top_base(i, j, c):
         if lid(i, j): return lidc(i, j)                                    # no dark slit under the lids
         if i in (7, 8): return dark(c, .5)                                 # parting line front to back
-        return dark(med, .74)                                              # flat, evenly shaded top -> four separate tufts
+        return dark(med, .62)                                              # flat, evenly shaded top -> four separate tufts
     put(8, 0, top, fn=top_base)
     put(40, 0, top, keep=lambda i, j, c: lid(i, j), fn=lambda i, j, c: lidc(i, j))
     chin = front(300, 660, 590, 700, 16, 16)
