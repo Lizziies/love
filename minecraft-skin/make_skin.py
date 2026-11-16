@@ -84,30 +84,26 @@ def build(slim=True):
         for j in (14, 15):
             c = face[i, j]
             if not is_hair(c) and (c[0] < 120 or c[0] - c[2] < 25): face[i, j] = face[i, 13]
-    put(8, 8, face)                                                        # face + hair (base layer)
-    put(40, 8, face, keep=lambda i, j, c: lit(_hat8[i//2, j//2]) and j > 0)  # fringe and locks stand out on the hat layer
+    tuft = lambda i: i//2 in (1, 2, 5, 6)                                  # the two tufts: blocks 2-3 and 6-7 of 8
+    toprow = lambda i, j, c: dark(c, .7) if (j < 2 and not tuft(i)) else c # base is shaded where the hat is cut away
+    put(8, 8, face, fn=toprow)                                             # face + hair (base layer)
+    put(40, 8, face, keep=lambda i, j, c: lit(_hat8[i//2, j//2]) and (j >= 2 or tuft(i)))
     bk = fill_rows(back(262, 374, 694, 806, 16, 16)); bk8 = back(262, 374, 694, 806, 8, 8)
     for (i, j) in list(bk):
         blk = bk8[i//2, j//2]
         if (j < 6 or i < 4 or i > 11) and is_hair(blk) and blk[0] >= 72: bk[i, j] = blk
     bk = vsmooth(bk, lambda i, j: j >= 6 and 4 <= i <= 11)
-    outer = lambda i, j: (i < 4 or i > 11) and not (i in (0, 15) and 6 <= j <= 10)   # only the two side locks are raised
-    put(24, 8, bk, fn=lambda i, j, c: SHADOW if (i in (0, 15) and 6 <= j <= 10) else dark(c, .72) if i in (4, 11) else c)
-    put(56, 8, bk, keep=lambda i, j, c: outer(i, j))
+    gap = lambda i, j: i in (0, 15) and 6 <= j <= 9                        # small gaps at the outer edge only
+    put(24, 8, bk, fn=lambda i, j, c: SHADOW if gap(i, j) else toprow(i, j, c))
+    put(56, 8, bk, keep=lambda i, j, c: not gap(i, j) and (j >= 2 or tuft(i)),
+        fn=lambda i, j, c: dark(c, .93) if 6 <= i <= 9 and j >= 2 else c)  # closed back, centre a touch darker
     side = fill_rows(quad(QH, (112, 925), (345, 958), (345, 1425), (115, 1398), 16, 16))
     side = vsmooth(side, lambda i, j: i < 12)                              # calm vertical strands
     for (i, j) in list(side):                                              # the curls next to the face are blocks
         if i >= 12: side[i, j] = side[12 + 2*((i-12)//2), 2*(j//2)]
-    def side_hat(i, j, c):                                                 # i = 0 at the back, 15 next to the face
-        if i < 4 and j < 2: return True                                    # wall of the tuft
-        if i >= 12 and j >= 2: return True                                 # curls next to the face
-        if i < 2 and 9 <= j <= 13: return True                             # loose strand at the back
-        return False
-    def side_base(i, j, c):
-        if i < 2 and 6 <= j <= 8: return SHADOW                            # notch at the temple
-        if i == 11 and j >= 2: return dark(c, .72)                         # shadow behind the curls
-        if j < 2 and i >= 4: return dark(c, .8)
-        return c
+    notch = lambda i, j: i < 2 and j in (6, 7)                             # one-block notch at the temple
+    side_hat = lambda i, j, c: j >= 2 and not notch(i, j)                  # closed wall, top edge slopes away
+    side_base = lambda i, j, c: SHADOW if notch(i, j) else dark(c, .7) if j < 2 else c
     put(0, 8, side, fn=side_base); put(32, 8, side, keep=side_hat)
     put(16, 8, side, flip=True, fn=side_base); put(48, 8, side, keep=side_hat, flip=True)
     top = quad(QH, (112, 925), (570, 895), (810, 925), (345, 958), 16, 16)
@@ -119,16 +115,14 @@ def build(slim=True):
             top[i, j] = tuple(int(v*0.9) for v in rm) if i in (0, 15) else rm
     for i in (2, 3, 12, 13):                                               # the two small highlights near the front
         for j in (11, 12): top[i, j] = (200, 180, 155)
-    isear = lambda i, j: i//2 in (0, 1, 6, 7) and j//2 in (0, 1)
+    lid = lambda i, j: tuft(i) and (j < 6 or j >= 14)                      # lids close the tufts (back part and front edge)
     def top_base(i, j, c):
-        if isear(i, j): return SHADOW                                      # under the tufts
-        if (i in (4, 5, 10, 11) and j < 4) or (j in (4, 5) and (i < 4 or i > 11)): return dark(c, .55)   # their shadow
-        if i in (0, 15) or j in (0, 15): return dark(c, .7)
-        return dark(c, .86)
+        if lid(i, j): return dark(c, .55)
+        if i in (0, 15) or j in (0, 15): return dark(c, .62)
+        return dark(c, .84)
     put(8, 0, top, fn=top_base)
     earc = quad(QH, (150, 885), (160, 885), (160, 892), (150, 892), 1, 1)[0, 0]
-    put(40, 0, top, keep=lambda i, j, c: isear(i, j),                      # ears: caps on the back corners, closed by the hair walls
-        fn=lambda i, j, c: earc)
+    put(40, 0, top, keep=lambda i, j, c: lid(i, j), fn=lambda i, j, c: earc)
     chin = front(300, 660, 590, 700, 16, 16)
     put(16, 0, chin, fn=lambda i, j, c: c if 2 <= i <= 13 and 2 <= j <= 13 else (95, 74, 58))
 
@@ -199,12 +193,13 @@ def v2(img):
         for j in range(17, 24): blend(64+i, 72+j, (230, 194, 134), .22)
     for (i, j) in ((6, 1), (9, 1), (7, 2), (8, 2)): px[40+i, 40+j] = (212, 176, 110, 255)   # necklace
     for i in (7, 8): px[40+i, 40+3] = (236, 186, 128, 255)                                   # heart pendant
-    GREY, PINK = (146, 136, 128, 255), (244, 228, 226, 255)                        # cat ears: grey fur, light inside
-    for ex in (0, 12):
-        for i in range(4):
-            for j in range(4): px[80+ex+i, j] = PINK if (i in (1, 2) and j in (1, 2)) else GREY
-            px[112+ex+i, 16] = GREY                                                # back wall of the ear
-    for i in range(4): px[64+i, 16] = GREY; px[96+12+i, 16] = GREY                 # side walls
+    GREY = (150, 140, 132, 255)                                                    # tufts as grey cat ears
+    for i in range(16):
+        for j in range(16):
+            if px[80+i, j][3]: px[80+i, j] = (236, 222, 218, 255) if (i % 8 in (3, 4) and 1 <= j <= 3) else GREY
+        for j in (0, 1):
+            for ox in (80, 112):
+                if px[ox+i, 16+j][3]: px[ox+i, 16+j] = GREY
     return img
 
 if __name__ == "__main__":
