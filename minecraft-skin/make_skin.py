@@ -4,6 +4,8 @@
 from PIL import Image
 HI = Image.open("ref/front_close.png").convert("RGB"); KH = HI.width/924      # coords below are in a 924px-wide frame
 LO = Image.open("reference.png").convert("RGB")
+BK = Image.open("ref/back_close.png").convert("RGB")                          # sharp close-up of the back view
+QH = Image.open("ref/head_quarter.png").convert("RGB")                        # sharp close-up of the head, 3/4 from above
 GAIN = 1.15
 
 def bright(c): return tuple(min(255, int(v*GAIN+0.5)) for v in c)
@@ -18,17 +20,26 @@ def cell(img, x0, y0, x1, y1):                      # median colour of the inner
 def grid(img, k, x0, y0, x1, y1, w, h):             # sample a w*h texel grid from a rectangle
     return {(i, j): cell(img, k*(x0+i*(x1-x0)/w), k*(y0+j*(y1-y0)/h), k*(x0+(i+1)*(x1-x0)/w), k*(y0+(j+1)*(y1-y0)/h))
             for j in range(h) for i in range(w)}
-def quad(ox, oy, z, tl, tr, br, bl, w, h):          # sample a perspective quad from the overview
-    out = {}
+def quad(img, tl, tr, br, bl, w, h, r=5):           # sample a perspective quad (924px-frame coords)
+    k = img.width/924; out = {}
     for j in range(h):
         for i in range(w):
             a, b = (i+.5)/w, (j+.5)/h
             X = (1-a)*(1-b)*tl[0] + a*(1-b)*tr[0] + a*b*br[0] + (1-a)*b*bl[0]
             Y = (1-a)*(1-b)*tl[1] + a*(1-b)*tr[1] + a*b*br[1] + (1-a)*b*bl[1]
-            out[i, j] = cell(LO, ox+X/z-2, oy+Y/z-2, ox+X/z+2, oy+Y/z+2)
+            out[i, j] = cell(img, k*(X-r), k*(Y-r), k*(X+r), k*(Y+r))
     return out
 def front(x0, y0, x1, y1, w, h): return grid(HI, KH, x0, y0, x1, y1, w, h)
-def back(x0, y0, x1, y1, w, h):  return grid(LO, 0.25, x0+2800, y0+3760, x1+2800, y1+3760, w, h)   # crop origin (700,940), zoom 4
+def back(x0, y0, x1, y1, w, h):  return grid(BK, BK.width/924, x0, y0, x1, y1, w, h)
+def fill_rows(g):                                   # replace non-hair / shadow-gap texels by the nearest hair texel in the row
+    out = {}
+    ok = lambda c: is_hair(c) and c[0] >= 72
+    w = max(i for i, _ in g)+1
+    for (i, j), c in g.items():
+        if ok(c): out[i, j] = c; continue
+        near = sorted((abs(i-ii), ii) for ii in range(w) if ok(g[ii, j]))
+        out[i, j] = g[near[0][1], j] if near else (121, 95, 72)
+    return out
 def chunky(g, n=2):                                 # 8x8 blocks -> 16x16 texels
     return {(i*n+a, j*n+b): c for (i, j), c in g.items() for a in range(n) for b in range(n)}
 
@@ -59,33 +70,32 @@ def build(slim=True):
         if not is_hair(face[i, 15]) and face[i, 15][0] - face[i, 15][2] < 25: face[i, 15] = face[i, 14]
     put(8, 8, face)                                                        # face + hair (base layer)
     lit = lambda c: is_hair(c) and c[0] >= 78                              # dark blocks are shadowed hair, not hat
-    put(40, 8, face, keep=lambda i, j, c: lit(c) and lit(_hat8[i//2, j//2]) and not (j == 0 and 4 <= i <= 11))
-    bk = {k: snap(c) for k, c in back(253, 150, 755, 665, 16, 16).items()}
-    put(24, 8, bk); put(56, 8, bk, keep=lambda i, j, c: j > 0 and (j < 6 or i < 4 or i > 11))
-    side = quad(390, 940, 3, (130, 95), (355, 150), (355, 470), (135, 415), 16, 16)
-    def rowmed(j):
-        v = sorted(c for (i, jj), c in side.items() if jj == j and c[0] >= 85 and c[0] > c[2]+8)
-        return v[len(v)//2] if v else (121, 95, 72)
-    side = {(i, j): snap(c if (c[0] >= 85 and c[0] > c[2]+8) else rowmed(j)) for (i, j), c in side.items()}
-    ear = lambda i, j, c: j > 0 or i >= 12
+    put(40, 8, face, keep=lambda i, j, c: lit(c) and lit(_hat8[i//2, j//2]))
+    bk = fill_rows(back(262, 374, 694, 806, 16, 16))
+    put(24, 8, bk)
+    put(56, 8, bk, keep=lambda i, j, c: (j < 6 or i < 4 or i > 11) and not (j == 0 and 4 <= i <= 11))
+    side = fill_rows(quad(QH, (112, 925), (345, 958), (345, 1425), (115, 1398), 16, 16))
+    ear = lambda i, j, c: j > 0 or i < 4                                   # top edge stays only where the ear is (back)
     put(0, 8, side); put(32, 8, side, keep=ear); put(16, 8, side, flip=True); put(48, 8, side, keep=ear, flip=True)
-    TONE = {'D': (88, 68, 52), 'M': (121, 95, 72), 'm': (133, 105, 80), 'L': (144, 115, 88),
-            'H': (168, 141, 113), 'W': (200, 180, 155)}
-    ROWS = "DMMmmLLHHLLmLmMM"                                              # back -> front
-    def top_c(i, j):
-        t = ROWS[j]
-        if i in (0, 15): t = {'H': 'L', 'L': 'm', 'm': 'M', 'M': 'D', 'D': 'D'}[t]
-        if j in (12, 13) and i in (5, 6, 9, 10): t = 'W'
-        return TONE[t]
-    top = {(i, j): top_c(i, j) for i in range(16) for j in range(16)}
-    put(8, 0, top)
-    put(40, 0, top, keep=lambda i, j, c: i//2 in (0, 1, 6, 7) and j//2 in (6, 7),   # ears: closed corner caps
-        fn=lambda i, j, c: TONE['H'] if j in (13, 14) and i in (1, 2, 13, 14) else TONE['L'])
+    top = quad(QH, (112, 925), (570, 895), (810, 925), (345, 958), 16, 16)
+    med = sorted(c for c in top.values() if is_hair(c) and c[0] >= 90); med = med[len(med)//2]
+    top = {(i, j): (c if (is_hair(c) or c[0] > 150) and c[0] >= 80 and c[0] > c[2]+10 else med) for (i, j), c in top.items()}
+    for j in range(16):                                                    # hair runs sideways: one tone per row
+        row = sorted(top[i, j] for i in range(16)); rm = row[len(row)//2]
+        for i in range(16):
+            top[i, j] = tuple(int(v*0.9) for v in rm) if i in (0, 15) else rm
+    for i in (2, 3, 12, 13):                                               # the two small highlights near the front
+        for j in (11, 12): top[i, j] = (200, 180, 155)
+    isear = lambda i, j: i//2 in (0, 1, 6, 7) and j//2 in (0, 1)
+    put(8, 0, top, fn=lambda i, j, c: med if isear(i, j) else c)
+    earc = quad(QH, (150, 885), (160, 885), (160, 892), (150, 892), 1, 1)[0, 0]
+    put(40, 0, top, keep=lambda i, j, c: isear(i, j),                      # ears: caps on the back corners, closed by the hair walls
+        fn=lambda i, j, c: earc)
     chin = front(300, 660, 590, 700, 16, 16)
     put(16, 0, chin, fn=lambda i, j, c: c if 2 <= i <= 13 and 2 <= j <= 13 else (95, 74, 58))
 
     # ---------------- body ----------------
-    bf = dict(_bf); bb = back(270, 650, 750, 1370, 16, 24)
+    bf = dict(_bf); bb = back(270, 770, 680, 1398, 16, 24)
     for j in range(24):                                                    # thin zipper sits between two texels
         z = cell(HI, KH*435, KH*(705+j*640/24), KH*445, KH*(705+(j+1)*640/24))
         if z[0] > 95 and abs(z[0]-z[2]) < 14 and j >= 13: bf[7, j] = z
@@ -101,7 +111,7 @@ def build(slim=True):
         return {k for k in h if nb(*k) >= 2 or k[1] == 0}
     hf, hb = strand(bf), strand(bb)
     put(20, 20, bf, fn=under); put(32, 20, bb, fn=under)
-    put(20, 36, bf, keep=lambda i, j, c: (i, j) in hf); put(32, 36, bb, keep=lambda i, j, c: (i, j) in hb, fn=lambda i, j, c: snap(c))
+    put(20, 36, bf, keep=lambda i, j, c: (i, j) in hf); put(32, 36, bb, keep=lambda i, j, c: (i, j) in hb)
     HOOD = bf[0, 20]
     solid(16, 20, 4, 12, bright(HOOD)); solid(28, 20, 4, 12, bright(HOOD))
     solid(20, 16, 8, 4, (48, 49, 52)); solid(28, 16, 8, 4, (26, 26, 28))
@@ -117,15 +127,15 @@ def build(slim=True):
             put(bx+4+aw, by+4, wide, keep, fn=nohair); put(bx+8+aw, by+4, bk, keep, fn=nohair)
             solid(bx+4, by, aw, 4, (50, 51, 54))
         solid(x+4+aw, y, aw, 4, bright(fr[2, 23]))
-    arm(40, 16, 40, 32, front(97, 705, 233, 1320, 2*aw, 24), back(752, 625, 903, 1345, 2*aw, 24))
-    arm(32, 48, 48, 48, front(652, 705, 798, 1320, 2*aw, 24), back(102, 625, 268, 1345, 2*aw, 24))
+    arm(40, 16, 40, 32, front(97, 705, 233, 1320, 2*aw, 24), back(687, 750, 806, 1365, 2*aw, 24))
+    arm(32, 48, 48, 48, front(652, 705, 798, 1320, 2*aw, 24), back(142, 750, 263, 1365, 2*aw, 24))
 
     # ---------------- legs ----------------
     def leg(x, y, fr, bk):
         put(x+4, y+4, fr); put(x+12, y+4, bk); put(x, y+4, bk); put(x+8, y+4, bk, flip=True)
         solid(x+4, y, 4, 4, bright(fr[3, 1])); solid(x+8, y, 4, 4, bright(fr[3, 23]))
-    leg(0, 16, front(240, 1345, 440, 1920, 8, 24), back(505, 1375, 740, 2030, 8, 24))
-    leg(16, 48, front(445, 1345, 650, 1920, 8, 24), back(270, 1375, 505, 2030, 8, 24))
+    leg(0, 16, front(240, 1345, 440, 1920, 8, 24), back(478, 1398, 670, 1945, 8, 24))
+    leg(16, 48, front(445, 1345, 650, 1920, 8, 24), back(282, 1398, 474, 1945, 8, 24))
     return img
 
 def v2(img):
@@ -154,10 +164,9 @@ def v2(img):
     GREY, PINK = (146, 136, 128, 255), (244, 228, 226, 255)                        # cat ears: grey fur, light inside
     for ex in (0, 12):
         for i in range(4):
-            for j in range(12, 16): px[80+ex+i, j] = PINK if (i in (1, 2) and j in (13, 14)) else GREY
-            for j in (0, 1): px[80+ex+i, 16+j] = PINK if (i in (1, 2) and j == 1) else GREY
-    for i in range(4):
-        for j in (0, 1): px[64+12+i, 16+j] = GREY; px[96+i, 16+j] = GREY
+            for j in range(4): px[80+ex+i, j] = PINK if (i in (1, 2) and j in (1, 2)) else GREY
+            px[112+ex+i, 16] = GREY                                                # back wall of the ear
+    for i in range(4): px[64+i, 16] = GREY; px[96+12+i, 16] = GREY                 # side walls
     return img
 
 if __name__ == "__main__":
