@@ -103,8 +103,8 @@ def build(slim=True):
     for (i, j) in list(side):                                              # the curls next to the face are blocks
         if i >= 12: side[i, j] = side[12 + 2*((i-12)//2), 2*(j//2)]
     notch = lambda i, j: i < 2 and j in (6, 7)                             # one-block notch at the temple
-    side_hat = lambda i, j, c: j >= 2 and not notch(i, j)                  # closed wall, top edge slopes away
-    side_base = lambda i, j, c: SHADOW if notch(i, j) else dark(c, .7) if j < 2 else c
+    side_hat = lambda i, j, c: j >= 3 and not notch(i, j)                  # closed wall, top edge slopes away
+    side_base = lambda i, j, c: SHADOW if notch(i, j) else dark(c, .7) if j < 3 else c
     put(0, 8, side, fn=side_base); put(32, 8, side, keep=side_hat)
     put(16, 8, side, flip=True, fn=side_base); put(48, 8, side, keep=side_hat, flip=True)
     top = quad(QH, (112, 925), (570, 895), (810, 925), (345, 958), 16, 16)
@@ -119,8 +119,7 @@ def build(slim=True):
     def top_base(i, j, c):
         if lid(i, j): return lidc(i, j)                                    # no dark slit under the lids
         if i in (7, 8): return dark(c, .5)                                 # parting line front to back
-        if 6 <= i <= 9 or i in (0, 1, 14, 15): return dark(c, .68)         # where the hat layer is cut away
-        return dark(c, .84)
+        return dark(med, .74)                                              # flat, evenly shaded top -> four separate tufts
     put(8, 0, top, fn=top_base)
     put(40, 0, top, keep=lambda i, j, c: lid(i, j), fn=lambda i, j, c: lidc(i, j))
     chin = front(300, 660, 590, 700, 16, 16)
