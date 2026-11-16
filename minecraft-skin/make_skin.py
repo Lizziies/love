@@ -6,7 +6,7 @@ HI = Image.open("ref/front_close.png").convert("RGB"); KH = HI.width/924      # 
 LO = Image.open("reference.png").convert("RGB")
 BK = Image.open("ref/back_close.png").convert("RGB")                          # sharp close-up of the back view
 QH = Image.open("ref/head_quarter.png").convert("RGB")                        # sharp close-up of the head, 3/4 from above
-GAIN = 1.15
+GAIN = 1.06
 
 def bright(c): return tuple(min(255, int(v*GAIN+0.5)) for v in c)
 def is_hair(c):
@@ -40,6 +40,13 @@ def fill_rows(g):                                   # replace non-hair / shadow-
         near = sorted((abs(i-ii), ii) for ii in range(w) if ok(g[ii, j]))
         out[i, j] = g[near[0][1], j] if near else (121, 95, 72)
     return out
+def vsmooth(g, where):                              # vertical median filter -> long calm strands
+    out = dict(g); h = max(j for _, j in g)+1
+    for (i, j), c in g.items():
+        if not where(i, j): continue
+        win = sorted(g[i, jj] for jj in range(max(0, j-2), min(h, j+3)) if where(i, jj))
+        out[i, j] = win[len(win)//2]
+    return out
 def chunky(g, n=2):                                 # 8x8 blocks -> 16x16 texels
     return {(i*n+a, j*n+b): c for (i, j), c in g.items() for a in range(n) for b in range(n)}
 
@@ -65,16 +72,29 @@ def build(slim=True):
             for i in range(int(2*w)): px[int(2*x)+i, int(2*y)+j] = tuple(c)+(255,)
 
     # ---------------- head ----------------
-    face = front(*HEAD, 16, 16)
-    for i in range(16):                                                    # below the chin the render shows the shirt
-        if not is_hair(face[i, 15]) and face[i, 15][0] - face[i, 15][2] < 25: face[i, 15] = face[i, 14]
-    put(8, 8, face)                                                        # face + hair (base layer)
+    fine = front(*HEAD, 16, 16)
     lit = lambda c: is_hair(c) and c[0] >= 78                              # dark blocks are shadowed hair, not hat
-    put(40, 8, face, keep=lambda i, j, c: lit(c) and lit(_hat8[i//2, j//2]))
-    bk = fill_rows(back(262, 374, 694, 806, 16, 16))
+    face = {}
+    for (i, j), c in fine.items():                                         # hair: one colour per block, like the render;
+        blk = _hat8[i//2, j//2]                                            # skin and eyes keep the finer detail
+        face[i, j] = blk if is_hair(blk) else c
+    for i in range(16):                                                    # below the chin the render shows the shirt
+        for j in (14, 15):
+            c = face[i, j]
+            if not is_hair(c) and (c[0] < 120 or c[0] - c[2] < 25): face[i, j] = face[i, 13]
+    put(8, 8, face)                                                        # face + hair (base layer)
+    put(40, 8, face, keep=lambda i, j, c: lit(_hat8[i//2, j//2]))          # fringe and locks stand out on the hat layer
+    bk = fill_rows(back(262, 374, 694, 806, 16, 16)); bk8 = back(262, 374, 694, 806, 8, 8)
+    for (i, j) in list(bk):
+        blk = bk8[i//2, j//2]
+        if (j < 6 or i < 4 or i > 11) and is_hair(blk) and blk[0] >= 72: bk[i, j] = blk
+    bk = vsmooth(bk, lambda i, j: j >= 6 and 4 <= i <= 11)
     put(24, 8, bk)
     put(56, 8, bk, keep=lambda i, j, c: (j < 6 or i < 4 or i > 11) and not (j == 0 and 4 <= i <= 11))
     side = fill_rows(quad(QH, (112, 925), (345, 958), (345, 1425), (115, 1398), 16, 16))
+    side = vsmooth(side, lambda i, j: i < 12)                              # calm vertical strands
+    for (i, j) in list(side):                                              # the curls next to the face are blocks
+        if i >= 12: side[i, j] = side[12 + 2*((i-12)//2), 2*(j//2)]
     ear = lambda i, j, c: j > 0 or i < 4                                   # top edge stays only where the ear is (back)
     put(0, 8, side); put(32, 8, side, keep=ear); put(16, 8, side, flip=True); put(48, 8, side, keep=ear, flip=True)
     top = quad(QH, (112, 925), (570, 895), (810, 925), (345, 958), 16, 16)

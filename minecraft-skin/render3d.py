@@ -29,8 +29,9 @@ def render(path, out, slim=True, S=14, views=((0,8),(35,8),(180,8))):
                  ((U+d+w,V),(w,d),(-hw,-hh,-hd),(k[0],0,0),(0,0,k[2]),(0,-1,0))]
                 for (tu,tv),(tw,th),O,du,dv,n in faces:
                     nz = proj(n)[2] - proj((0,0,0))[2]
-                    if nz <= 0.01: continue
-                    lit = 0.78 + 0.22*nz if n[1] == 0 else 1.0
+                    if nz <= 0.01 and not g: continue                # the outer layer is drawn double-sided, like in Bedrock
+                    lit = 0.78 + 0.22*abs(nz) if n[1] == 0 else 1.0
+                    if nz <= 0.01: lit *= 0.8
                     for j in range(int(th*R)):
                         for i in range(int(tw*R)):
                             col = T[int(tu*R)+i, int(tv*R)+j]
