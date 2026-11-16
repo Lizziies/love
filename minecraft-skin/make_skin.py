@@ -84,10 +84,11 @@ def build(slim=True):
         for j in (14, 15):
             c = face[i, j]
             if not is_hair(c) and (c[0] < 120 or c[0] - c[2] < 25): face[i, j] = face[i, 13]
-    tuft = lambda i: i//2 in (1, 2, 5, 6)                                  # the two tufts: blocks 2-3 and 6-7 of 8
-    toprow = lambda i, j, c: dark(c, .7) if (j < 2 and not tuft(i)) else c # base is shaded where the hat is cut away
+    tuft = lambda i: 2 <= i <= 5 or 10 <= i <= 13                          # the two tufts: columns 3-6 and 11-14 of 16
+    cut = lambda i, j: (j < 2 and not tuft(i)) or (j < 3 and i in (0, 1, 14, 15))   # parting + rounded outer corners
+    toprow = lambda i, j, c: dark(c, .7) if cut(i, j) else c               # base is shaded where the hat is cut away
     put(8, 8, face, fn=toprow)                                             # face + hair (base layer)
-    put(40, 8, face, keep=lambda i, j, c: lit(_hat8[i//2, j//2]) and (j >= 2 or tuft(i)))
+    put(40, 8, face, keep=lambda i, j, c: (lit(_hat8[i//2, j//2]) or (j < 2 and tuft(i))) and not cut(i, j))
     bk = fill_rows(back(262, 374, 694, 806, 16, 16)); bk8 = back(262, 374, 694, 806, 8, 8)
     for (i, j) in list(bk):
         blk = bk8[i//2, j//2]
@@ -95,7 +96,7 @@ def build(slim=True):
     bk = vsmooth(bk, lambda i, j: j >= 6 and 4 <= i <= 11)
     gap = lambda i, j: i in (0, 15) and 6 <= j <= 9                        # small gaps at the outer edge only
     put(24, 8, bk, fn=lambda i, j, c: SHADOW if gap(i, j) else toprow(i, j, c))
-    put(56, 8, bk, keep=lambda i, j, c: not gap(i, j) and (j >= 2 or tuft(i)),
+    put(56, 8, bk, keep=lambda i, j, c: not gap(i, j) and not cut(i, j),
         fn=lambda i, j, c: dark(c, .93) if 6 <= i <= 9 and j >= 2 else c)  # closed back, centre a touch darker
     side = fill_rows(quad(QH, (112, 925), (345, 958), (345, 1425), (115, 1398), 16, 16))
     side = vsmooth(side, lambda i, j: i < 12)                              # calm vertical strands
@@ -113,16 +114,15 @@ def build(slim=True):
         row = sorted(top[i, j] for i in range(16)); rm = row[len(row)//2]
         for i in range(16):
             top[i, j] = tuple(int(v*0.9) for v in rm) if i in (0, 15) else rm
-    for i in (2, 3, 12, 13):                                               # the two small highlights near the front
-        for j in (11, 12): top[i, j] = (200, 180, 155)
-    lid = lambda i, j: tuft(i) and (j < 6 or j >= 14)                      # lids close the tufts (back part and front edge)
+    lid = lambda i, j: tuft(i) and (j < 4 or j >= 12)                      # lids, 4 deep, meeting the back and front walls
+    lidc = lambda i, j: bk[i, 0] if j < 4 else face[i, 0]                  # same colour as the wall -> one closed block
     def top_base(i, j, c):
-        if lid(i, j): return dark(c, .55)
-        if i in (0, 15) or j in (0, 15): return dark(c, .62)
+        if lid(i, j): return lidc(i, j)                                    # no dark slit under the lids
+        if i in (7, 8): return dark(c, .5)                                 # parting line front to back
+        if 6 <= i <= 9 or i in (0, 1, 14, 15): return dark(c, .68)         # where the hat layer is cut away
         return dark(c, .84)
     put(8, 0, top, fn=top_base)
-    earc = quad(QH, (150, 885), (160, 885), (160, 892), (150, 892), 1, 1)[0, 0]
-    put(40, 0, top, keep=lambda i, j, c: lid(i, j), fn=lambda i, j, c: earc)
+    put(40, 0, top, keep=lambda i, j, c: lid(i, j), fn=lambda i, j, c: lidc(i, j))
     chin = front(300, 660, 590, 700, 16, 16)
     put(16, 0, chin, fn=lambda i, j, c: c if 2 <= i <= 13 and 2 <= j <= 13 else (95, 74, 58))
 
@@ -193,13 +193,12 @@ def v2(img):
         for j in range(17, 24): blend(64+i, 72+j, (230, 194, 134), .22)
     for (i, j) in ((6, 1), (9, 1), (7, 2), (8, 2)): px[40+i, 40+j] = (212, 176, 110, 255)   # necklace
     for i in (7, 8): px[40+i, 40+3] = (236, 186, 128, 255)                                   # heart pendant
-    GREY = (150, 140, 132, 255)                                                    # tufts as grey cat ears
+    GREY = (150, 140, 132, 255)                                                    # back tufts as grey cat ears
     for i in range(16):
-        for j in range(16):
-            if px[80+i, j][3]: px[80+i, j] = (236, 222, 218, 255) if (i % 8 in (3, 4) and 1 <= j <= 3) else GREY
+        for j in range(4):
+            if px[80+i, j][3]: px[80+i, j] = (236, 222, 218, 255) if (i in (3, 4, 11, 12) and j in (1, 2)) else GREY
         for j in (0, 1):
-            for ox in (80, 112):
-                if px[ox+i, 16+j][3]: px[ox+i, 16+j] = GREY
+            if px[112+i, 16+j][3]: px[112+i, 16+j] = GREY
     return img
 
 if __name__ == "__main__":
