@@ -1,159 +1,206 @@
-import math, random, sys
+# Generates the 128x128 Bedrock skin (slim arms) modelled on the reference render.
 from PIL import Image
 
+C = {
+ 'H':(205,172,138),'L':(176,140,106),'M':(152,119,90),'D':(118,90,68),'S':(72,54,44),
+ 'm':(164,130,98),'d':(135,104,79),
+ 'k':(236,198,178),'b':(228,176,162),'c':(60,50,46),
+}
+SHIRT_T,SHIRT=(240,236,230),(214,204,192)
+HOOD,HOOD_L,POCKET,HOOD_D=(30,30,32),(42,43,46),(47,48,52),(22,22,24)
+J_L,J_M,J_B,J_I=(74,84,100),(63,72,89),(54,62,78),(42,48,62)
+SOLE,SOLE_G,TONGUE,SHOE,CUFF=(226,218,206),(168,166,162),(190,190,190),(22,22,24),(228,218,205)
+EYE_T,EYE_B=(112,134,154),(160,184,198)
+
 def build(slim=True):
-    img = Image.new("RGBA", (128,128), (0,0,0,0))
-    px = img.load()
-    rng = random.Random(7)
-    tab = [[rng.uniform(-1,1) for _ in range(64)] for _ in range(16)]
-    def noise(a,b,s=0):
-        return random.Random(a*928371 + b*1237 + s*77).uniform(-1,1)
-    def lerp(a,b,t): return tuple(int(round(a[i]+(b[i]-a[i])*t)) for i in range(3))
-    HD,HM,HL = (120,86,56),(176,136,96),(216,182,136)
-    def hair(u,v,seed=0,lighten=0.0):
-        c = u + int(round(math.sin(v/2.6+seed*1.7)))
-        t = 0.5 + 0.33*tab[seed%16][(c+20)%64] + 0.07*noise(u,v,seed) + lighten
-        t = max(0,min(1,t))
-        col = lerp(HD,HM,t*2) if t<0.5 else lerp(HM,HL,(t-0.5)*2)
-        return col+(255,)
-    SK,SKS = (238,200,172),(220,176,150)
-    def skin(u,v,s=0):
-        n = noise(u,v,40+s)*3
-        return tuple(int(c+n) for c in SK)+(255,)
-    def hood(u,v,s=0,light=0.0):
-        n = noise(u,v,60+s)*3
-        b = 30+n+light
-        return (int(b),int(b),int(b+4),255)
-    def fill(x,y,w,h,fn):
-        x,y,w,h = 2*x,2*y,int(2*w),int(2*h)
-        for v in range(h):
-            for u in range(w):
-                c = fn(u,v,w,h)
-                if c: px[x+u,y+v] = c
+    img = Image.new("RGBA",(128,128),(0,0,0,0)); px = img.load()
+    def fill(x,y,w,h,fn):                      # x,y,w,h in 64-res units; fn gets half-pixel coords
+        X,Y,W,Hh = int(2*x),int(2*y),int(2*w),int(2*h)
+        for v in range(Hh):
+            for u in range(W):
+                c = fn(u,v,W,Hh)
+                if c: px[X+u,Y+v] = tuple(c)+(255,)
+    def chunky(rows):                          # 8x8 char map -> fn
+        rows=[r.split() for r in rows]
+        return lambda u,v,w,h: C.get(rows[v//2][u//2])
 
-    # ---------- HEAD ----------
-    def fmask(u,v):
-        lim = {5:5,6:4,7:3,8:2,9:2}.get(v,1)
-        return v<=4 or u<=lim or u>=15-lim
-    def face(u,v,w,h):
-        if fmask(u,v): return hair(u,v,1, 0.08 if v<3 else 0)
-        eyes = {
-          (3,9):(74,48,38),(4,9):(74,48,38),(5,9):(74,48,38),(2,9):(74,48,38),
-          (3,10):(246,246,250),(4,10):(104,150,190),(5,10):(58,96,142),
-          (3,11):(246,246,250),(4,11):(150,190,216),(5,11):(104,150,190),
-        }
-        for (a,b),c in list(eyes.items()): eyes[(15-a,b)] = c
-        if (u,v) in eyes: return eyes[(u,v)]+(255,)
-        if v==12 and (2<=u<=4 or 11<=u<=13): return (242,168,158,255)
-        if v==13 and u in (7,8): return (208,128,124,255)
-        if v==12 and u in (7,8): return SKS+(255,)
-        if fmask(u,v-1) or fmask(u-1,v) or fmask(u+1,v): return SKS+(255,)
-        return skin(u,v)
+    # ---------------- HEAD ----------------
+    FRONT = ["D M M M M M M D",
+             "M H D M M M H M",
+             "D M D M L D M D",
+             "M L D M L D L M",
+             "L L S M L S L L",
+             "D S S k k S S D",
+             "L b e k k e b L",
+             "M L b k k b L M"]
+    fr = chunky(FRONT)
+    def front(u,v,w,h):
+        r=FRONT[v//2].split()[u//2]
+        if r=='e': return EYE_T if v%2==0 else EYE_B
+        return fr(u,v,w,h)
+    def front_o(u,v,w,h):
+        cx,cy=u//2,v//2
+        r=FRONT[cy].split()[cx]
+        if r in 'ekbS': return None
+        if cy<=4 or cx in (0,7) or cy==7: return C[r]
+    fill(8,8,8,8,front); fill(40,8,8,8,front_o)
+
+    STR = "MmMdMmLmdMmMdM"                      # fine vertical strands
+    EDGE = "DMDMLDLM"
+    def side(mirror):
+        def f(u,v,w,h):
+            uf = 15-u if mirror else u          # distance from the front edge
+            if uf<2: return C[EDGE[v//2]]
+            t = STR[uf-2]
+            if v<2: t = {'L':'M','m':'d','M':'d','d':'D','D':'D'}[t]
+            if v in (7,8) and t=='L': t='H'
+            return C[t]
+        return f
+    def side_o(mirror):
+        def f(u,v,w,h):
+            uf = 15-u if mirror else u
+            if uf<2 and v>=6: return C[EDGE[v//2]]
+            if 6<=uf<=11 and v<4: return C['L'] if v<2 else C['M']      # ear
+            if uf>=14 and v in (6,7): return C['c']                      # clip
+            if uf>=14 and 10<=v<=13: return C['L']
+        return f
+    fill(0,8,8,8,side(True));  fill(32,8,8,8,side_o(True))    # right side: front edge at its right
+    fill(16,8,8,8,side(False)); fill(48,8,8,8,side_o(False))
+
+    BACK = ["D M M M M M M D",
+            "M H M M M M H M",
+            "D M M M M M M D",
+            "M L . . . . L M",
+            "M L . . . . M M",
+            "L M . . . . L M",
+            "M H . . . . H M",
+            "M L . . . . L M"]
+    BSTR = "dMmLLmMd"
+    def back(u,v,w,h):
+        r=BACK[v//2].split()[u//2]
+        if r!='.': return C[r]
+        t=BSTR[u-4]
+        if u in (7,8): t='H' if 7<=v<=11 else 'L'
+        return C[t]
+    def back_o(u,v,w,h):
+        r=BACK[v//2].split()[u//2]
+        if r!='.' : return C[r]
+    fill(24,8,8,8,back); fill(56,8,8,8,back_o)
+
+    TOPR = "DMMMLLLHHLLLMMMM"                   # back -> front
     def top(u,v,w,h):
-        c = hair(v, u if u<8 else 15-u, 2, 0.1)   # strands flow sideways from parting
-        if u in (7,8) and v>=5: c = hair(u,v,2,-0.3)
-        return c
-    for ox in (0,32):
-        fill(ox+8,8,8,8, face if ox==0 else (lambda u,v,w,h: hair(u,v,1,0.08 if v<3 else 0) if fmask(u,v) else None))
-        fill(ox+8,0,8,8, top)
-        fill(ox+0,8,8,8, lambda u,v,w,h: hair(u,v,3))
-        fill(ox+16,8,8,8, lambda u,v,w,h: hair(u,v,4))
-        fill(ox+24,8,8,8, lambda u,v,w,h: hair(u,v,5))
-    fill(16,0,8,8, lambda u,v,w,h: skin(u,v,1) if 2<=u<=13 and v>=2 else hair(u,v,6,-0.2))
+        t=TOPR[v]
+        if v>=14 and u//2 in (1,6): t='H'
+        if u in (0,15): t='D' if t in 'MD' else 'M'
+        return C[t]
+    def top_o(u,v,w,h):
+        if u//2 in (0,1,6,7) and 2<=v//2<=4:
+            return C['H'] if (u//2 in (1,6) and v//2==3) else C['L']
+    fill(8,0,8,8,top); fill(40,0,8,8,top_o)
+    fill(16,0,8,8,lambda u,v,w,h: C['k'] if 2<=u<=13 and 2<=v<=13 else C['D'])
 
-    # ---------- BODY ----------
+    # ---------------- BODY ----------------
     def bfront(u,v,w,h):
-        half = 3 if v<=9 else 2 if v<=12 else 1 if v<=14 else 0
-        if half and 8-half<=u<=7+half:
-            g = 240 - (6 if u in (8-half,7+half) else 0) + noise(u,v,9)*3
-            return (int(g),int(g),int(g-4),255)
-        if u in (7,8) and v>=15: return (150,152,160,255) if (v+u)%2 else (110,112,120,255)
-        if half and u in (7-half,8+half): return hood(u,v,0,10)       # lapel edge
-        if v>=22: return hood(u,v,0,-8 if u%2 else -3)               # ribbed hem
-        if 16<=v<=20 and (u-2==(v-16)//2+0 or 13-u==(v-16)//2): return hood(u,v,0,12)  # pockets
-        return hood(u,v,0, 6 if v<2 else 0)
-    def bback(u,v,w,h):
-        if v<=7 and abs(u-7.5)<=6.5-max(0,v-4)*1.2: return hood(u,v,1,9 if v==7 or abs(u-7.5)>5 else 5)
-        if v>=22: return hood(u,v,1,-8 if u%2 else -3)
-        return hood(u,v,1)
-    def bside(u,v,w,h): return hood(u,v,2,-8 if v>=22 and u%2 else 0)
-    fill(20,20,8,12,bfront); fill(32,20,8,12,bback)
-    fill(16,20,4,12,bside); fill(28,20,4,12,bside)
-    fill(20,16,8,4, lambda u,v,w,h: (238,236,232,255) if 5<=u<=10 and v>=3 else hood(u,v,3,6))
-    fill(28,16,8,4, lambda u,v,w,h: hood(u,v,4,-8))
-    # hair falling over body (jacket layer)
-    LF = [16,19,18,14,9]; RF = [17,20,16,13,8]
+        if v<=4 and 6<=u<=9: return SHIRT_T if v<2 else SHIRT
+        if 5<=v<=13 and u in (7,8): return SHIRT
+        if v>=14 and u==7: return (196,196,198) if v%2==0 else (150,150,152)
+        if v>=14 and u==8: return (120,120,124) if v%2==0 else (92,92,96)
+        if v<=21:
+            for cols,rows in (((4,5),(18,19)),((2,5),(20,20)),((1,5),(21,21))):
+                if rows[0]<=v<=rows[1] and (cols[0]<=u<=cols[1] or cols[0]<=15-u<=cols[1]): return POCKET
+        if v>=22: return HOOD_D
+        if v<2: return HOOD_L
+        return HOOD
+    def bplain(u,v,w,h): return HOOD_D if v>=22 else HOOD_L if v<2 else HOOD
+    fill(20,20,8,12,bfront); fill(32,20,8,12,bplain)
+    fill(16,20,4,12,bplain); fill(28,20,4,12,bplain)
+    fill(20,16,8,4,lambda u,v,w,h: SHIRT_T if 6<=u<=9 and v>=5 else HOOD_L)
+    fill(28,16,8,4,lambda u,v,w,h: HOOD_D)
+
+    def seg(t,u,v):                             # long soft blocks along a strand
+        order="DdMmLH"; i=order.index(t)
+        k=((v+u*5)//7)%3
+        return order[max(0,min(5,i+(1 if k==0 else 0)-(1 if k==2 else 0)))]
+    FL = [9,18,18,16,16,14]; FT="MLLmMd"        # hair lengths / tones over the chest
     def ofront(u,v,w,h):
-        if u<5 and v<LF[u]: return hair(u,v,7, 0.1 if v>LF[u]-4 else 0)
-        if u>10 and v<RF[15-u]: return hair(u,v,8, 0.1 if v>RF[15-u]-4 else 0)
+        c = u if u<6 else 15-u if u>9 else None
+        if c is None: return
+        L = FL[c] - (1 if (u>9 and c in (3,5)) else 0)
+        start = 1 if c==0 else 0
+        if start<=v<L:
+            t = seg(FT[c],u,v)
+            if v==L-1: t={'H':'L','L':'m','m':'M','M':'d','d':'D','D':'D'}[t]
+            return C[t]
+    BL=[12,12,17,17,19,22,22,20,20,22,22,19,17,17,14,14]; BT="MdmLmMdmmdMmLmdM"
     def oback(u,v,w,h):
-        L = 23 - abs(u-7.5)*1.3 + (1 if u%3==0 else 0)
-        if 1<=u<=14 and v<L: return hair(u,v,5, 0.12 if v>L-5 else 0)
+        if v<BL[u]:
+            t=BT[u]
+            if u in (7,8): t='H' if 8<=v<=17 else 'L'
+            else: t=seg(t,u,v)
+            if u in (2,3) and 6<=v<=12: t='H' if u==3 else 'L'
+            if u in (12,13) and 8<=v<=13: t='H' if u==12 else 'L'
+            return C[t]
     fill(20,36,8,12,ofront); fill(32,36,8,12,oback)
 
-    # ---------- ARMS ----------
+    # ---------------- ARMS ----------------
     aw = 3 if slim else 4
-    def sleeve(s):
-        def f(u,v,w,h):
-            if v>=22: return skin(u,v,s)
-            if v==21: return (240,238,232,255)
-            if v>=19: return hood(u,v,s,-8 if u%2 else -3)
-            return hood(u,v,s, 7 if v<2 else (4 if (u+v//5)%5==0 else 0))
-        return f
-    def arm(x,y,s):
-        fill(x+4,y,aw,4, lambda u,v,w,h: hood(u,v,s,7))
-        fill(x+4+aw,y,aw,4, lambda u,v,w,h: skin(u,v,s))
-        fill(x,y+4,4,12,sleeve(s)); fill(x+4,y+4,aw,12,sleeve(s+1))
-        fill(x+4+aw,y+4,4,12,sleeve(s+2)); fill(x+8+aw,y+4,aw,12,sleeve(s+3))
-    arm(40,16,10); arm(32,48,20)
+    def sleeve(u,v,w,h): return CUFF if v>=22 else HOOD
+    def sleeve_o(u,v,w,h):
+        if v<=4: return HOOD_L
+        if 17<=v<=21: return (36,36,39)
+    def arm(x,y,ox,oy):
+        for (bx,by,fn,top_c,bot_c) in ((x,y,sleeve,HOOD_L,CUFF),(ox,oy,sleeve_o,HOOD_L,None)):
+            fill(bx+4,by,aw,4,lambda u,v,w,h: top_c)
+            if bot_c: fill(bx+4+aw,by,aw,4,lambda u,v,w,h: bot_c)
+            fill(bx,by+4,4,12,fn); fill(bx+4,by+4,aw,12,fn)
+            fill(bx+4+aw,by+4,4,12,fn); fill(bx+8+aw,by+4,aw,12,fn)
+    arm(40,16,40,32); arm(32,48,48,48)
 
-    # ---------- LEGS ----------
-    def leg(s, front=False, side=False):
+    # ---------------- LEGS ----------------
+    def jeans(u,v,inner=None):
+        if u==inner: return J_I
+        lvl = (1 if 2<=u<=5 else 0) + (1 if (2<=v<=7 or 12<=v<=15) else 0)
+        if u in (0,7): lvl = 0
+        return (J_B,J_M,J_L)[lvl]
+    def legface(kind,inner):
         def f(u,v,w,h):
-            if v>=22: return (232,228,220,255) if v==22 else (200,196,190,255)
+            if v>=22: return SOLE_G if u==inner else SOLE
             if v>=20:
-                if front and v==20 and u in (3,4): return (225,225,225,255)
-                b = 28+noise(u,v,s)*3; return (int(b),int(b),int(b+3),255)
-            fade = 10*math.exp(-((v-8)**2)/30.0) if 2<=u<=5 else 0
-            chk = 5 if ((u//2)+(v//3))%2==0 else -3
-            edge = -10 if u in (0,7) else 0
-            n = noise(u,v,s)*4
-            k = fade+chk+edge+n - (8 if v>=18 else 0)
-            return (int(80+k),int(102+k),int(134+k),255)
+                if kind=='front' and v==20 and 2<=u<=5: return TONGUE
+                return SHOE
+            return jeans(u,v,inner)
         return f
-    def legs(x,y,s):
-        fill(x+4,y,4,4, lambda u,v,w,h:(74,94,124,255))
-        fill(x+8,y,4,4, lambda u,v,w,h:(196,192,186,255))
-        fill(x,y+4,4,12,leg(s)); fill(x+4,y+4,4,12,leg(s+1,front=True))
-        fill(x+8,y+4,4,12,leg(s+2)); fill(x+12,y+4,4,12,leg(s+3))
-    legs(0,16,30); legs(16,48,40)
+    def leg(x,y,ox,oy,right):
+        inn_f = 7 if right else 0               # inner column on the front face
+        inn_b = 0 if right else 7
+        fill(x+4,y,4,4,lambda u,v,w,h: J_B); fill(x+8,y,4,4,lambda u,v,w,h: SOLE_G)
+        fill(x,y+4,4,12,legface('side',None)); fill(x+4,y+4,4,12,legface('front',inn_f))
+        fill(x+8,y+4,4,12,legface('side',None)); fill(x+12,y+4,4,12,legface('back',inn_b))
+        hem=lambda u,v,w,h: (58,67,84) if v in (18,19) else None
+        for fx in (ox,ox+4,ox+8,ox+12): fill(fx,oy+4,4,12,hem)
+    leg(0,16,0,32,True); leg(16,48,0,48,False)
     return img, aw
 
 def preview(img, aw):
-    A = 2*aw
-    W = 16+2*A; H = 64
-    out = Image.new("RGBA",(W*2+12,H+4),(92,100,120,255))
+    A=2*aw; W=16+2*A
+    out=Image.new("RGBA",(W*2+16,68),(92,100,120,255))
     def paste(x,y,w,h,dx,dy,ox):
-        r = img.crop((2*x,2*y,2*x+int(2*w),2*y+int(2*h)))
-        out.alpha_composite(r,(ox+dx,dy+2))
-    # front
+        r=img.crop((int(2*x),int(2*y),int(2*x+2*w),int(2*y+2*h))); out.alpha_composite(r,(ox+dx,dy+2))
     ox=2
-    for o in (0,):
-        paste(8,8,8,8,A,0,ox); paste(40,8,8,8,A,0,ox)
-        paste(20,20,8,12,A,16,ox); paste(44,20,aw,12,0,16,ox); paste(36,52,aw,12,A+16,16,ox)
-        paste(4,20,4,12,A,40,ox); paste(20,52,4,12,A+8,40,ox)
-        paste(20,36,8,12,A,16,ox)
-    ox = W+10
-    paste(24,8,8,8,A,0,ox); paste(56,8,8,8,A,0,ox)
-    paste(32,20,8,12,A,16,ox)
-    paste(44+aw+4+ (0),20,aw,12,A+16,16,ox)          # right arm back
-    paste(36+aw+4,52,aw,12,0,16,ox)                  # left arm back
-    paste(12,20,4,12,A+8,40,ox); paste(28,52,4,12,A,40,ox)
-    paste(32,36,8,12,A,16,ox)
+    paste(8,8,8,8,A,0,ox)
+    paste(20,20,8,12,A,16,ox); paste(44,20,aw,12,0,16,ox); paste(36,52,aw,12,A+16,16,ox)
+    paste(44,36,aw,12,0,16,ox); paste(52,52,aw,12,A+16,16,ox)
+    paste(4,20,4,12,A,40,ox); paste(20,52,4,12,A+8,40,ox); paste(4,36,4,12,A,40,ox); paste(4,52,4,12,A+8,40,ox)
+    paste(20,36,8,12,A,16,ox); paste(40,8,8,8,A,0,ox)
+    ox=W+14
+    paste(24,8,8,8,A,0,ox)
+    paste(32,20,8,12,A,16,ox); paste(48+aw,20,aw,12,A+16,16,ox); paste(40+aw,52,aw,12,0,16,ox)
+    paste(48+aw,36,aw,12,A+16,16,ox); paste(56+aw,52,aw,12,0,16,ox)
+    paste(12,20,4,12,A+8,40,ox); paste(28,52,4,12,A,40,ox); paste(12,36,4,12,A+8,40,ox); paste(12,52,4,12,A,40,ox)
+    paste(32,36,8,12,A,16,ox); paste(56,8,8,8,A,0,ox)
     return out.resize((out.width*8,out.height*8),Image.NEAREST)
 
-for slim in (True,False):
-    img,aw = build(slim)
-    name = "skin_slim_128.png" if slim else "skin_classic_128.png"
-    img.save(name)
-    preview(img,aw).save("preview_"+("slim" if slim else "classic")+".png")
+if __name__=="__main__":
+    for slim in (True,False):
+        img,aw=build(slim); tag="slim" if slim else "classic"
+        img.save(f"skin_{tag}_128.png"); preview(img,aw).save(f"preview_{tag}.png")
